@@ -12,7 +12,7 @@ class StabilityTestAction extends TestAction {
 		this.ringBuffer = ringBuffer;
 		
 		if (this.ringBuffer == null || this.ringBuffer.isEmpty()) {
-			this.description = "No known failures";
+			this.description = "No known failures. Stability 100 %";
 		} else {
 			int total = 0, failed = 0;
 			for (boolean passed : this.ringBuffer.getData()) {
@@ -21,7 +21,11 @@ class StabilityTestAction extends TestAction {
 					failed++;
 				}
 			}
-			this.description = "Failed " + failed + " times in the last " + total + " runs";
+			
+			double stability = 100 * (total - failed) / total; 
+			
+			this.description =
+					String.format("Failed %d times in the last %d runs. Stability: %.0f %%", failed, total, stability);
 		}
 	}
 
