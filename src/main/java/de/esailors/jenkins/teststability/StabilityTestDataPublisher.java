@@ -19,14 +19,16 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-import org.kohsuke.stapler.DataBoundConstructor;
+import net.sf.json.JSONObject;
 
-import de.esailors.jenkins.teststability.StabilityTestData.CircularBuffer;
+import org.kohsuke.stapler.DataBoundConstructor;
+import org.kohsuke.stapler.StaplerRequest;
+
+import de.esailors.jenkins.teststability.StabilityTestData.CircularStabilityHistory;
+import de.esailors.jenkins.teststability.StabilityTestData.Result;
 
 public class StabilityTestDataPublisher extends TestDataPublisher {
 	
-	private static final int MAX_HISTORY_SIZE = 10;
-
 	@DataBoundConstructor
 	public StabilityTestDataPublisher() {
 	}
@@ -36,37 +38,29 @@ public class StabilityTestDataPublisher extends TestDataPublisher {
 			BuildListener listener, TestResult testResult) throws IOException,
 			InterruptedException {
 		
-		Map<String,CircularBuffer> stabilityHistory = new HashMap<String,CircularBuffer>();
+		Map<String,CircularStabilityHistory> stabilityHistory = new HashMap<String,CircularStabilityHistory>();
 		
 		for (CaseResult result: getCaseResults(testResult)) {
 			
-			CircularBuffer previousRingBuffer = null;
+			CircularStabilityHistory previousRingBuffer = getPreviousHistory(result);
 			
-			CaseResult previous = result.getPreviousResult();
-			if (previous != null) {
-				StabilityTestAction previousAction = previous.getTestAction(StabilityTestAction.class);
-				if (previousAction != null) {
-					previousRingBuffer = previousAction.getRingBuffer();
-
-					if (previousRingBuffer != null) {
-						if (result.isPassed()) {
-							previousRingBuffer.add(true);
-						} else if (result.getFailCount() > 0) {
-							previousRingBuffer.add(false);
-						}
-						
-						stabilityHistory.put(result.getId(), previousRingBuffer);
-					}
+			if (previousRingBuffer != null) {
+				if (result.isPassed()) {
+					previousRingBuffer.add(build.getNumber(), true);
+				} else if (result.getFailCount() > 0) {
+					previousRingBuffer.add(build.getNumber(), false);
 				}
-			}
-			
-			if (previousRingBuffer == null && result.getFailCount() > 0) {
-				CircularBuffer ringBuffer = new CircularBuffer(MAX_HISTORY_SIZE);
+				// else test is skipped and we leave history unchanged
 				
-				// add previous 9 results (if there are any):
-				buildUpInitialHistory(ringBuffer, result, MAX_HISTORY_SIZE - 1);
+				stabilityHistory.put(result.getId(), previousRingBuffer);
+			} else if (isFirstTestFailure(result, previousRingBuffer)) {
+				int maxHistoryLength = getDescriptor().getMaxHistoryLength();
+				CircularStabilityHistory ringBuffer = new CircularStabilityHistory(maxHistoryLength);
 				
-				ringBuffer.add(false);
+				// add previous results (if there are any):
+				buildUpInitialHistory(ringBuffer, result, maxHistoryLength - 1);
+				
+				ringBuffer.add(build.getNumber(), false);
 				stabilityHistory.put(result.getId(), ringBuffer);
 			}
 		}
@@ -74,17 +68,46 @@ public class StabilityTestDataPublisher extends TestDataPublisher {
 		return new StabilityTestData(stabilityHistory);
 	}
 
+	private CircularStabilityHistory getPreviousHistory(CaseResult result) {
+		CaseResult previous = result.getPreviousResult();
+		if (previous != null) {
+			StabilityTestAction previousAction = previous.getTestAction(StabilityTestAction.class);
+			if (previousAction != null) {
+				CircularStabilityHistory ringBuffer = previousAction.getRingBuffer();
+				
+				if (ringBuffer == null) {
+					return null;
+				}
+				
+				if (ringBuffer.getMaxSize() != getDescriptor().getMaxHistoryLength()) {
+					Result[] data = ringBuffer.getData();
+					
+					ringBuffer = new CircularStabilityHistory(getDescriptor().getMaxHistoryLength());
+					ringBuffer.addAll(data);
+				}
+				
+				return ringBuffer;
+			}
+		}
+		return null;
+	}
+
+	private boolean isFirstTestFailure(CaseResult result,
+			CircularStabilityHistory previousRingBuffer) {
+		return previousRingBuffer == null && result.getFailCount() > 0;
+	}
 	
-	private void buildUpInitialHistory(CircularBuffer ringBuffer, CaseResult result, int number) {
-		List<Boolean> passesFromNewestToOldest = new ArrayList<Boolean>(number);
+	private void buildUpInitialHistory(CircularStabilityHistory ringBuffer, CaseResult result, int number) {
+		List<Result> testResultsFromNewestToOldest = new ArrayList<Result>(number);
 		CaseResult previousResult = result.getPreviousResult();
 		while (previousResult != null) {
-			passesFromNewestToOldest.add(previousResult.isPassed());
+			testResultsFromNewestToOldest.add(
+					new Result(previousResult.getOwner().getNumber(), previousResult.isPassed()));
 			previousResult = previousResult.getPreviousResult();
 		}
 
-		for (int i = passesFromNewestToOldest.size() - 1; i >= 0; i--) {
-			ringBuffer.add(passesFromNewestToOldest.get(i));
+		for (int i = testResultsFromNewestToOldest.size() - 1; i >= 0; i--) {
+			ringBuffer.add(testResultsFromNewestToOldest.get(i));
 		}
 	}
 
@@ -102,13 +125,33 @@ public class StabilityTestDataPublisher extends TestDataPublisher {
 		return results;
 	}
 
+    @Override
+    public DescriptorImpl getDescriptor() {
+        return (DescriptorImpl)super.getDescriptor();
+    }
+	
 
 	@Extension
 	public static class DescriptorImpl extends Descriptor<TestDataPublisher> {
 		
+		private int maxHistoryLength = 30;
+
+		@Override
+		public boolean configure(StaplerRequest req, JSONObject json)
+				throws FormException {
+			this.maxHistoryLength = json.getInt("maxHistoryLength");
+			
+			save();
+            return super.configure(req,json);
+		}
+		
+		public int getMaxHistoryLength() {
+			return this.maxHistoryLength;
+		}
+
 		@Override
 		public String getDisplayName() {
-			return "Test stabbi";
+			return "Test stability history";
 		}
 	}
 }

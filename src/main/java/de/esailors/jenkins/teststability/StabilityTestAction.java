@@ -1,23 +1,28 @@
 package de.esailors.jenkins.teststability;
 
+import org.jvnet.localizer.Localizable;
+
+import jenkins.model.Jenkins;
+import hudson.model.HealthReport;
 import hudson.tasks.junit.TestAction;
-import de.esailors.jenkins.teststability.StabilityTestData.CircularBuffer;
+import de.esailors.jenkins.teststability.StabilityTestData.CircularStabilityHistory;
+import de.esailors.jenkins.teststability.StabilityTestData.Result;
 
 class StabilityTestAction extends TestAction {
 
-	private CircularBuffer ringBuffer;
+	private CircularStabilityHistory ringBuffer;
 	private String description;
 
-	public StabilityTestAction(CircularBuffer ringBuffer) {
+	public StabilityTestAction(CircularStabilityHistory ringBuffer) {
 		this.ringBuffer = ringBuffer;
 		
 		if (this.ringBuffer == null || this.ringBuffer.isEmpty()) {
 			this.description = "No known failures. Stability 100 %";
 		} else {
 			int total = 0, failed = 0;
-			for (boolean passed : this.ringBuffer.getData()) {
+			for (Result r : this.ringBuffer.getData()) {
 				total++;
-				if (!passed) {
+				if (!r.passed) {
 					failed++;
 				}
 			}
@@ -28,13 +33,31 @@ class StabilityTestAction extends TestAction {
 					String.format("Failed %d times in the last %d runs. Stability: %.0f %%", failed, total, stability);
 		}
 	}
-
-	public String getIconFileName() {
-		// TODO Auto-generated method stub
-		return null;
+	
+	private int getStability() {
+		
+		if (ringBuffer == null) {
+			return 100;
+		}
+		
+		int total = 0, failed = 0;
+		for (Result r : this.ringBuffer.getData()) {
+			total++;
+			if (!r.passed) {
+				failed++;
+			}
+		}
+		
+		int stability = 100 * (total - failed) / total;
+		return stability;
+	}
+	
+	public String getImagePath() {
+		HealthReport healthReport = new HealthReport(getStability(), (Localizable)null);
+		return healthReport.getIconUrl("32x32");
 	}
 
-	public CircularBuffer getRingBuffer() {
+	public CircularStabilityHistory getRingBuffer() {
 		return this.ringBuffer;
 	}
 
@@ -42,12 +65,16 @@ class StabilityTestAction extends TestAction {
 		return this.description;
 	}
 	
+	public String getIconFileName() {
+		return null;
+	}
+	
 	public String getDisplayName() {
-		return "Test stability";
+		return null;
 	}
 
 	public String getUrlName() {
-		return "stability";
+		return null;
 	}
 	
 }
