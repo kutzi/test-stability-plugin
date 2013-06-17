@@ -24,9 +24,12 @@ import org.kohsuke.stapler.DataBoundConstructor;
 import de.esailors.jenkins.teststability.StabilityTestData.CircularBuffer;
 
 public class StabilityTestDataPublisher extends TestDataPublisher {
+	
+	private static final int MAX_HISTORY_SIZE = 10;
 
 	@DataBoundConstructor
-	public StabilityTestDataPublisher() {}
+	public StabilityTestDataPublisher() {
+	}
 	
 	@Override
 	public Data getTestData(AbstractBuild<?, ?> build, Launcher launcher,
@@ -58,7 +61,11 @@ public class StabilityTestDataPublisher extends TestDataPublisher {
 			}
 			
 			if (previousRingBuffer == null && result.getFailCount() > 0) {
-				CircularBuffer ringBuffer = new CircularBuffer(10);
+				CircularBuffer ringBuffer = new CircularBuffer(MAX_HISTORY_SIZE);
+				
+				// add previous 9 results (if there are any):
+				buildUpInitialHistory(ringBuffer, result, MAX_HISTORY_SIZE - 1);
+				
 				ringBuffer.add(false);
 				stabilityHistory.put(result.getId(), ringBuffer);
 			}
@@ -68,6 +75,19 @@ public class StabilityTestDataPublisher extends TestDataPublisher {
 	}
 
 	
+	private void buildUpInitialHistory(CircularBuffer ringBuffer, CaseResult result, int number) {
+		List<Boolean> passesFromNewestToOldest = new ArrayList<Boolean>(number);
+		CaseResult previousResult = result.getPreviousResult();
+		while (previousResult != null) {
+			passesFromNewestToOldest.add(previousResult.isPassed());
+			previousResult = previousResult.getPreviousResult();
+		}
+
+		for (int i = passesFromNewestToOldest.size() - 1; i >= 0; i--) {
+			ringBuffer.add(passesFromNewestToOldest.get(i));
+		}
+	}
+
 	private Collection<CaseResult> getCaseResults(TestResult testResult) {
 		List<CaseResult> results = new ArrayList<CaseResult>();
 		
