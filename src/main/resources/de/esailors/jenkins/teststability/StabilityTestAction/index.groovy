@@ -1,0 +1,1 @@
+raw("<img src='" + my.smallImagePath + "'/> <span>(" + my.description + ")</span>")
