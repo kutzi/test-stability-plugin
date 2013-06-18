@@ -121,6 +121,8 @@ public class StabilityTestDataPublisher extends TestDataPublisher {
 			return result.getPreviousResult();
 		} catch (RuntimeException e) {
 			// there's a bug (only on freestyle builds!) that getPreviousResult may throw a NPE (only for ClassResults!)
+			// Note: doesn't seem to occur anymore in Jenkins 1.520
+			// Don't know about the versions between 1.480 and 1.520
 			return null;
 		}
 	}
