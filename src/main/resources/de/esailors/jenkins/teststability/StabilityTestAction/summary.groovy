@@ -1,1 +1,1 @@
-raw("<div><img src='" + my.imagePath + "'/>" + my.description + "</div>")
+raw("<div><img src='" + my.bigImagePath + "'/> " + my.description + "</div>")

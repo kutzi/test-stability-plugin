@@ -2,10 +2,8 @@ package de.esailors.jenkins.teststability;
 
 import org.jvnet.localizer.Localizable;
 
-import jenkins.model.Jenkins;
 import hudson.model.HealthReport;
 import hudson.tasks.junit.TestAction;
-import de.esailors.jenkins.teststability.StabilityTestData.CircularStabilityHistory;
 import de.esailors.jenkins.teststability.StabilityTestData.Result;
 
 class StabilityTestAction extends TestAction {
@@ -52,12 +50,18 @@ class StabilityTestAction extends TestAction {
 		return stability;
 	}
 	
-	public String getImagePath() {
+	public String getBigImagePath() {
 		HealthReport healthReport = new HealthReport(getStability(), (Localizable)null);
 		return healthReport.getIconUrl("32x32");
 	}
+	
+	public String getSmallImagePath() {
+		HealthReport healthReport = new HealthReport(getStability(), (Localizable)null);
+		return healthReport.getIconUrl("16x16");
+	}
 
 	public CircularStabilityHistory getRingBuffer() {
+		// TODO: only publish an immutable view of the buffer!
 		return this.ringBuffer;
 	}
 

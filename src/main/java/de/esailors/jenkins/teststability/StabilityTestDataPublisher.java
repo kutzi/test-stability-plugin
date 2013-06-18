@@ -9,7 +9,6 @@ import hudson.tasks.junit.PackageResult;
 import hudson.tasks.junit.TestDataPublisher;
 import hudson.tasks.junit.TestResult;
 import hudson.tasks.junit.TestResultAction.Data;
-import hudson.tasks.junit.CaseResult;
 import hudson.tasks.junit.ClassResult;
 
 import java.io.IOException;
@@ -24,7 +23,6 @@ import net.sf.json.JSONObject;
 import org.kohsuke.stapler.DataBoundConstructor;
 import org.kohsuke.stapler.StaplerRequest;
 
-import de.esailors.jenkins.teststability.StabilityTestData.CircularStabilityHistory;
 import de.esailors.jenkins.teststability.StabilityTestData.Result;
 
 public class StabilityTestDataPublisher extends TestDataPublisher {
@@ -38,22 +36,31 @@ public class StabilityTestDataPublisher extends TestDataPublisher {
 			BuildListener listener, TestResult testResult) throws IOException,
 			InterruptedException {
 		
-		Map<String,CircularStabilityHistory> stabilityHistory = new HashMap<String,CircularStabilityHistory>();
+		Map<String,CircularStabilityHistory> stabilityHistoryPerTest = new HashMap<String,CircularStabilityHistory>();
 		
-		for (CaseResult result: getCaseResults(testResult)) {
+		for (hudson.tasks.test.TestResult result: getClassAndCaseResults(testResult)) {
 			
-			CircularStabilityHistory previousRingBuffer = getPreviousHistory(result);
+			CircularStabilityHistory history = getPreviousHistory(result);
 			
-			if (previousRingBuffer != null) {
+			if (history != null) {
 				if (result.isPassed()) {
-					previousRingBuffer.add(build.getNumber(), true);
+					history.add(build.getNumber(), true);
+					
+					if (history.isAllPassed()) {
+						history = null;
+					}
+					
 				} else if (result.getFailCount() > 0) {
-					previousRingBuffer.add(build.getNumber(), false);
+					history.add(build.getNumber(), false);
 				}
 				// else test is skipped and we leave history unchanged
 				
-				stabilityHistory.put(result.getId(), previousRingBuffer);
-			} else if (isFirstTestFailure(result, previousRingBuffer)) {
+				if (history != null) {
+					stabilityHistoryPerTest.put(result.getId(), history);
+				} else {
+					stabilityHistoryPerTest.remove(result.getId());
+				}
+			} else if (isFirstTestFailure(result, history)) {
 				int maxHistoryLength = getDescriptor().getMaxHistoryLength();
 				CircularStabilityHistory ringBuffer = new CircularStabilityHistory(maxHistoryLength);
 				
@@ -61,45 +68,42 @@ public class StabilityTestDataPublisher extends TestDataPublisher {
 				buildUpInitialHistory(ringBuffer, result, maxHistoryLength - 1);
 				
 				ringBuffer.add(build.getNumber(), false);
-				stabilityHistory.put(result.getId(), ringBuffer);
+				stabilityHistoryPerTest.put(result.getId(), ringBuffer);
 			}
 		}
 		
-		return new StabilityTestData(stabilityHistory);
+		return new StabilityTestData(stabilityHistoryPerTest);
 	}
 
-	private CircularStabilityHistory getPreviousHistory(CaseResult result) {
-		CaseResult previous = result.getPreviousResult();
+	private CircularStabilityHistory getPreviousHistory(hudson.tasks.test.TestResult result) {
+		hudson.tasks.test.TestResult previous = getPreviousResult(result);
+
 		if (previous != null) {
 			StabilityTestAction previousAction = previous.getTestAction(StabilityTestAction.class);
 			if (previousAction != null) {
-				CircularStabilityHistory ringBuffer = previousAction.getRingBuffer();
+				CircularStabilityHistory prevHistory = previousAction.getRingBuffer();
 				
-				if (ringBuffer == null) {
+				if (prevHistory == null) {
 					return null;
 				}
 				
-				if (ringBuffer.getMaxSize() != getDescriptor().getMaxHistoryLength()) {
-					Result[] data = ringBuffer.getData();
-					
-					ringBuffer = new CircularStabilityHistory(getDescriptor().getMaxHistoryLength());
-					ringBuffer.addAll(data);
-				}
-				
-				return ringBuffer;
+				// copy to new to not modify the old data
+				CircularStabilityHistory newHistory = new CircularStabilityHistory(getDescriptor().getMaxHistoryLength());
+				newHistory.addAll(prevHistory.getData());
+				return newHistory;
 			}
 		}
 		return null;
 	}
 
-	private boolean isFirstTestFailure(CaseResult result,
+	private boolean isFirstTestFailure(hudson.tasks.test.TestResult result,
 			CircularStabilityHistory previousRingBuffer) {
 		return previousRingBuffer == null && result.getFailCount() > 0;
 	}
 	
-	private void buildUpInitialHistory(CircularStabilityHistory ringBuffer, CaseResult result, int number) {
+	private void buildUpInitialHistory(CircularStabilityHistory ringBuffer, hudson.tasks.test.TestResult result, int number) {
 		List<Result> testResultsFromNewestToOldest = new ArrayList<Result>(number);
-		CaseResult previousResult = result.getPreviousResult();
+		hudson.tasks.test.TestResult previousResult = getPreviousResult(result);
 		while (previousResult != null) {
 			testResultsFromNewestToOldest.add(
 					new Result(previousResult.getOwner().getNumber(), previousResult.isPassed()));
@@ -111,13 +115,24 @@ public class StabilityTestDataPublisher extends TestDataPublisher {
 		}
 	}
 
-	private Collection<CaseResult> getCaseResults(TestResult testResult) {
-		List<CaseResult> results = new ArrayList<CaseResult>();
+	
+	private hudson.tasks.test.TestResult getPreviousResult(hudson.tasks.test.TestResult result) {
+		try {
+			return result.getPreviousResult();
+		} catch (RuntimeException e) {
+			// there's a bug (only on freestyle builds!) that getPreviousResult may throw a NPE (only for ClassResults!)
+			return null;
+		}
+	}
+	
+	private Collection<hudson.tasks.test.TestResult> getClassAndCaseResults(TestResult testResult) {
+		List<hudson.tasks.test.TestResult> results = new ArrayList<hudson.tasks.test.TestResult>();
 		
 		Collection<PackageResult> packageResults = testResult.getChildren();
 		for (PackageResult pkgResult : packageResults) {
 			Collection<ClassResult> classResults = pkgResult.getChildren();
 			for (ClassResult cr : classResults) {
+				results.add(cr);
 				results.addAll(cr.getChildren());
 			}
 		}

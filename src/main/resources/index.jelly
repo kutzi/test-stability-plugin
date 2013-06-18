@@ -2,5 +2,5 @@
   This view is used to render the installed plugins page.
 -->
 <div>
-  Shows tests stabilities.
+  Displays test stabilities - i.e. the history of failed tests.
 </div>
