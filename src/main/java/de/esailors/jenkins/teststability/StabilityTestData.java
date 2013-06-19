@@ -35,7 +35,7 @@ import java.util.Map;
 import jenkins.model.Jenkins;
 
 
-
+@SuppressWarnings("deprecation")
 class StabilityTestData extends Data {
 	
 	static {
@@ -49,7 +49,6 @@ class StabilityTestData extends Data {
 		this.stability = stabilityHistory;
 	}
 
-	@SuppressWarnings("deprecation")
 	@Override
 	public List<? extends TestAction> getTestAction(TestObject testObject) {
 		
